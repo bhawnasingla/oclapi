@@ -111,10 +111,10 @@ class CollectionReferencesView(CollectionBaseView,
         data = request.DATA.get('data')
         concept_expressions = data.get('concepts', [])
         mapping_expressions = data.get('mappings', [])
-        host_url = request.META['wsgi.url_scheme'] + '://' + request.get_host()
 
         errors = False
 
+        host_url = request.META['wsgi.url_scheme'] + '://' + request.META['HTTP_HOST']
         if mapping_expressions == '*' or concept_expressions == '*':
             add_multiple_references.delay(
                 self.serializer_class, self.request.user, data, self.parent_resource, host_url
@@ -362,11 +362,11 @@ class CollectionVersionExportView(ResourceAttributeChildMixin):
 
         if key:
             logger.debug('   Key retreived for collection version %s - Generating URL' % version)
-            url, status = key.generate_url(60), 303
+            url, status = key.generate_url(60), 200
             logger.debug('   URL retreived for collection version %s - Responding to client' % version)
         else:
             logger.debug('   Key does not exist for collection version %s' % version)
-            return HttpResponse(status=204)
+            status = self.handle_export_collection_version()
 
 
         response = HttpResponse(status=status)
@@ -404,13 +404,9 @@ class CollectionVersionExportView(ResourceAttributeChildMixin):
             return HttpResponse(status=405)  # export of head version is not allowed
 
         logger.debug('Collection Export requested for version %s (post)' % version)
-        status = 303
+        status = 204
         if not version.has_export():
             status = self.handle_export_collection_version()
-        else:
-            response = HttpResponse(status=status)
-            response['URL']=self.resource_version_path_info+'export/'
-            return response
         return HttpResponse(status=status)
 
     def delete(self, request, *args, **kwargs):
@@ -419,17 +415,14 @@ class CollectionVersionExportView(ResourceAttributeChildMixin):
         version = self.get_object()
         if version.has_export():
             key = version.get_export_key()
-            if key:
-                key.delete()
-                return HttpResponse(status=200)
-
+            key.delete()
         return HttpResponse(status=204)
 
     def handle_export_collection_version(self):
         version = self.get_object()
         try:
             export_collection.delay(version.id)
-            return 202
+            return 200
         except AlreadyQueued:
-            return 409
+            return 204
 

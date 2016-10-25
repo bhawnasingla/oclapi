@@ -17,11 +17,7 @@ from mappings.models import Mapping, MappingVersion
 from oclapi.utils import update_all_in_index, write_export_file
 from sources.models import SourceVersion
 from collection.models import CollectionVersion, CollectionReference
-from concepts.views import ConceptVersionListAllView
-from mappings.views import MappingListAllView
-
-import json
-from rest_framework.test import APIRequestFactory
+import requests
 
 celery = Celery('tasks', backend='redis://', broker='django://')
 celery.config_from_object('django.conf:settings')
@@ -126,12 +122,7 @@ def add_multiple_references(SerializerClass, user, data, parent_resource, host_u
         ResourceContainer = SourceVersion if uri.split('/')[3] == 'sources' else CollectionVersion
 
     if concept_expressions == '*':
-        url = host_url + uri + 'concepts?q=*' + search_term + '*'
-        view = ConceptVersionListAllView.as_view()
-        request = APIRequestFactory().get(url)
-        response = view(request)
-        response.render()
-        concepts_dict = json.loads(response.content)
+        concepts_dict = requests.get(host_url + uri + 'concepts?q=*' + search_term + '*').json()
         concept_uris = [c['url'] for c in concepts_dict]
         concepts = Concept.objects.filter(uri__in=concept_uris)
         expressions.extend(map(lambda c: c.uri, concepts))
@@ -139,14 +130,11 @@ def add_multiple_references(SerializerClass, user, data, parent_resource, host_u
         expressions.extend(concept_expressions)
 
     if mapping_expressions == '*':
-        url = host_url + uri + 'mappings?q=*' + search_term + '*'
-        view = MappingListAllView.as_view()
-        request = APIRequestFactory().get(url)
-        response = view(request)
-        response.render()
-        mappings_dict = json.loads(response.content)
-        mapping_uris = [c['url'] for c in mappings_dict]
-        mappings = Mapping.objects.filter(uri__in=mapping_uris)
+        mappings = []
+        resource_container = ResourceContainer.objects.get(uri=uri)
+        mappings.extend(
+            Mapping.objects.filter(parent_id=resource_container.versioned_object_id, mnemonic=search_term)
+        )
         expressions.extend(map(lambda m: m.uri, mappings))
     else:
         expressions.extend(mapping_expressions)
